@@ -6,18 +6,35 @@ local ClientSideSafeBeingUsed = false
 local ClientSideSafeUnlocked = false
 local ClientSideVangelicoOnCooldown = false 
 local secondsRemaining = 0
+local PlayerIsPolice = false  
 ESX = nil
+
+local frontDoorpos = vangelico.FrontDoorLockPickPosition 
+local DisplayFrontDoorSecurity = false 
+
+local DisplayClosestCase = false 
+local ClosestCase = 0
+local LastCaseOpened = 0
+local ClosestCasePosition 
+local ClosestCaseHeading 
 
 Citizen.CreateThread(function()
 	while ESX == nil do 
 		TriggerEvent('esx:getSharedObject', function(obj) ESX = obj end)
 		Citizen.Wait(0)
 	end 
-
+	setplayerPoliceJobStatus()
 	SetupBlip()
 	DeleteSeats()
 end)
-  
+   
+-- Job change function to set Jobs
+RegisterNetEvent('esx:setJob')
+AddEventHandler('esx:setJob', function(job)
+	TriggerServerEvent('zoo_PoliceCount:PlayerJobChange', source)
+	setplayerPoliceJobStatus()
+end)
+
 -- Sets up the map Icon
 function  SetupBlip() 
 	local blip = AddBlipForCoord(vangelico.VangelicoPosition.x, vangelico.VangelicoPosition.y, vangelico.VangelicoPosition.z)
@@ -32,6 +49,16 @@ function  SetupBlip()
 	EndTextCommandSetBlipName   (blip)
 end
  
+function setplayerPoliceJobStatus()
+
+	PlayerData = ESX.GetPlayerData()
+	if PlayerData and PlayerData.job then 
+		if PlayerData.job.name == "police" then
+			PlayerIsPolice = true 
+		end 
+	end 
+end 
+
  -- Function to Set the CLient Side state of the Jewelry Store
 RegisterNetEvent('vangelico:SetJewelryCaseState')
 AddEventHandler('vangelico:SetJewelryCaseState', function(JewelryCases, FrontDoorState, Hackedstate, SafeBeingUsed, SafeUnlocked, VangelicoOnCooldown )  
@@ -40,7 +67,8 @@ AddEventHandler('vangelico:SetJewelryCaseState', function(JewelryCases, FrontDoo
 	ClientSideFrontDoorsHacked = Hackedstate
 	ClientSideSafeBeingUsed = SafeBeingUsed 
 	ClientSideSafeUnlocked = SafeUnlocked
-	ClientSideVangelicoOnCooldown = VangelicoOnCooldown  
+	ClientSideVangelicoOnCooldown = VangelicoOnCooldown   
+	setDoorState(ClientSideFrontDoorsLocked)
 end)
 
 -- Hacking Function 
@@ -62,7 +90,7 @@ function opendoors(success, timeremaining)
 		TriggerEvent('mhacking:hide')
 		secondsRemaining = 0 
 	end
-end
+end 
   
 --Lock Picking Doors
 function LockpickComplete(result)
@@ -73,157 +101,141 @@ function LockpickComplete(result)
 	end
 end 
 
+function getPlayerDistance(Coords)
+	local playerCoords =  GetEntityCoords(GetPlayerPed(-1), true) 
+	return Vdist(playerCoords.x, playerCoords.y, playerCoords.z, Coords.x, Coords.y, Coords.z)
+end 
+
+function getClosestCase(JewelryCases)  
+	for k,v in pairs(JewelryCases) do   
+		if v.isOpen == false then 
+			local pos2 = v.position 
+			allcasesopened = false 
+			if(getPlayerDistance(pos2) < 1.0)then  
+				ClosestCasePosition = pos2
+				ClosestCase = k
+				print(k)
+				ClosestCaseHeading = v.heading 
+				DisplayClosestCase = true 
+				break 
+			end
+		else  
+			DisplayClosestCase = false 
+			ClosestCase = 0
+		end 
+	end 
+end 
+ 
+
+--Display Text   Police Close
+Citizen.CreateThread(function() 
+	while true do	
+		Citizen.Wait(0)
+		-- Police Secure Location
+		local securepos = vangelico.SecurePosition  
+		if PlayerIsPolice == true then 
+			if( getPlayerDistance(securepos) < 1.0)then 
+				Draw3DText(securepos.x, securepos.y, securepos.z, '~w~[~g~E~w~] ' .. 'to secure the building') 
+				if IsControlJustReleased(1, 51) then  
+					TriggerServerEvent("vangelico:SecureBuilding")
+				end 
+			end  
+		end  
+	end
+end)
+
 --Display Text   
 Citizen.CreateThread(function() 
 	while true do	
-		Citizen.Wait(0)  
-		local pos = GetEntityCoords(GetPlayerPed(-1), true) 
+		Citizen.Wait(0)   
 		local storepos = vangelico.VangelicoPosition
 		local allcasesopened = true 
 
+		local JewelryCases = ClientSideJewelryCases 
+		local FrontDoorsLocked = ClientSideFrontDoorsLocked 
+		local FrontDoorsHacked = ClientSideFrontDoorsHacked 
+		local SafeBeingUsed = ClientSideSafeBeingUsed 
+		local SafeUnlocked = ClientSideSafeUnlocked
+		local VangelicoOnCooldown = ClientSideVangelicoOnCooldown 
+
+
 		-- Kick people out if Jewelry store is on Cooldown
-		if(Vdist(pos.x, pos.y, pos.z, storepos.x, storepos.y, storepos.z) < 20.0)then
-			if ClientSideVangelicoOnCooldown == true then  
-				if(Vdist(pos.x, pos.y, pos.z, storepos.x, storepos.y, storepos.z) < 8.75)then
+		if( getPlayerDistance(storepos) < 20.0)then
+			if VangelicoOnCooldown == true then  
+				if( getPlayerDistance(storepos) < 8.75)then
 					local plyPed = GetPlayerPed(-1) 
 					SetEntityCoords(plyPed, vangelico.MoveToWhenClosedPosition.x, vangelico.MoveToWhenClosedPosition.y, vangelico.MoveToWhenClosedPosition.z) 
 					ESX.ShowNotification("Vangelico is currently closed.")
 				end 
-				-- Lock the front doors
-				local RightDoorObj =  GetClosestObjectOfType(vangelico.FrontDoorRight.Position, 0.8, vangelico.FrontDoorRight.Hash, false, false, false)
-				if DoesEntityExist(RightDoorObj) then 
-					FreezeEntityPosition(RightDoorObj, true)
-					SetEntityHeading(RightDoorObj, vangelico.FrontDoorLeft.Heading)
-				end 
-				local LeftDoorObj =  GetClosestObjectOfType(vangelico.FrontDoorLeft.Position, 0.8, vangelico.FrontDoorLeft.Hash, false, false, false)
-				if DoesEntityExist(LeftDoorObj) then 
-					FreezeEntityPosition(LeftDoorObj, true)
-					SetEntityHeading(LeftDoorObj, vangelico.FrontDoorLeft.Heading)
-				end 
 			else 
 				-- Jewelry Case 3d Text & Unlock press
-					if ClientSideJewelryCases == nil then  
+					if JewelryCases == nil then  
 						TriggerServerEvent('vangelico:GetCaseState', -1)  
+						JewelryCases = ClientSideJewelryCases
 					end   
-					if  ClientSideJewelryCases then  
-							for k,v in pairs(ClientSideJewelryCases) do   
-								local pos2 = v.position 
-								if v.isOpen == false then 
-									allcasesopened = false 
-									if(Vdist(pos.x, pos.y, pos.z, pos2.x, pos2.y, pos2.z) < 1.0)then  
-										Draw3DText(pos2.x, pos2.y, pos2.z, '~w~[~g~E~w~] ' .. 'to smash case') 
-									end
+					if  JewelryCases then  
+						if(getPlayerDistance(storepos) < 9.0)then
+							if ClosestCase ~= 0 then 
+								if(getPlayerDistance(ClosestCasePosition) > 1.0)then  
+									getClosestCase(JewelryCases)
 								end 
-							end 
-							if IsControlJustReleased(1, 51) and smashingcase == false then
-								if  ClientSideJewelryCases then 
-									for k,v in pairs(ClientSideJewelryCases) do   
-										local pos2 = v.position 
-										if v.isOpen == false  then 
-											if(Vdist(pos.x, pos.y, pos.z, pos2.x, pos2.y, pos2.z) < 1.0)then 
-												smashingcase = true 
-												robCase(pos2, v.heading, k)
-												break
-											end
-										end 
-									end
-								end 
+							else
+								getClosestCase(JewelryCases)
 							end  
-					else
+						end 
+					else  
+						ClosestCase = 0
 						allcasesopened = false 
+					end 
+					if ClosestCase ~= 0 then 
+						Draw3DText(ClosestCasePosition.x, ClosestCasePosition.y, ClosestCasePosition.z, '~w~[~g~E~w~] ' .. 'to smash case') 
+						if IsControlJustReleased(1, 51) and smashingcase == false then 
+							if(getPlayerDistance(ClosestCasePosition) < 1.0)then 
+								smashingcase = true 
+								robCase(ClosestCasePosition, ClosestCaseHeading, ClosestCase) 
+							end 
+						end  
 					end 
 	
 					-- Safe 3d Text and Unlock Press 
-					if allcasesopened == true and ClientSideSafeUnlocked == false then 
-						local safepos = vangelico.SafePos 
-			
-						--if(Vdist(pos.x, pos.y, pos.z, safepos.x, safepos.y, safepos.z) < 5.0)then 
-							--DrawMarker(5, safepos.x, safepos.y, safepos.z, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 250, 0, 0, 100,  false, false, 2, true,  nil, nil, false) 
-							if(Vdist(pos.x, pos.y, pos.z, safepos.x, safepos.y, safepos.z) < 1.0)then 
-								Draw3DText(safepos.x, safepos.y, safepos.z, '~w~[~g~E~w~] ' .. 'to try and open safe') 
-								if IsControlJustReleased(1, 51) then 
-									robSafe() 
-								end 
-							end
-						--end
-			
+					if allcasesopened == true and SafeUnlocked == false then 
+						local safepos = vangelico.SafePos  
+						if(getPlayerDistance(safepos) < 1.0)then 
+							Draw3DText(safepos.x, safepos.y, safepos.z, '~w~[~g~E~w~] ' .. 'to try and open safe') 
+							if IsControlJustReleased(1, 51) then 
+								robSafe() 
+							end 
+						end 
 					end 
 			
 					-- Display Message for Hacking Security Box 
-					if ClientSideFrontDoorsHacked == false then 
-						local hackpos = vangelico.HackPosition 
-						--if(Vdist(pos.x, pos.y, pos.z, hackpos.x, hackpos.y, hackpos.z) < 5.0)then 
-							--DrawMarker(5, hackpos.x, hackpos.y, hackpos.z, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 250, 0, 0, 100,  false, false, 2, true,  nil, nil, false) 
-							if(Vdist(pos.x, pos.y, pos.z, hackpos.x, hackpos.y, hackpos.z) < 1.0)then 
-								Draw3DText(hackpos.x, hackpos.y, hackpos.z, '~w~[~g~E~w~] ' .. 'to hack security box') 
-								if IsControlJustReleased(1, 51) then 
-									TriggerServerEvent('vangelico:hackFrontDoors', k)  
-								end 
-							end
-						--end
-			
-						local frontDoorpos = vangelico.FrontDoorLockPickPosition 
-						--if(Vdist(pos.x, pos.y, pos.z, frontDoorpos.x, frontDoorpos.y, frontDoorpos.z) < 5.0)then   
-							if(Vdist(pos.x, pos.y, pos.z, frontDoorpos.x, frontDoorpos.y, frontDoorpos.z) < 1.0)then 
-								Draw3DText(frontDoorpos.x, frontDoorpos.y, frontDoorpos.z, 'Extra security measures are in place')  
-							end
-						--end
+					if FrontDoorsHacked == false then 
+						local hackpos = vangelico.HackPosition  
+						if(getPlayerDistance(hackpos) < 1.0)then 
+							Draw3DText(hackpos.x, hackpos.y, hackpos.z, '~w~[~g~E~w~] ' .. 'to hack security box') 
+							if IsControlJustReleased(1, 51) then 
+								TriggerServerEvent('vangelico:hackFrontDoors', k)  
+							end 
+						end 
+			  
+						local frontDoorpos = vangelico.FrontDoorLockPickPosition  
+						if (getPlayerDistance(frontDoorpos) < 1.0)then 
+							Draw3DText(frontDoorpos.x, frontDoorpos.y, frontDoorpos.z, 'Extra security measures are in place')  
+						end
+
 					else
 						-- Display Message for Unlocking the Front Door
-						if ClientSideFrontDoorsLocked == true  then 
-							local frontDoorpos = vangelico.FrontDoorLockPickPosition 
-							--if(Vdist(pos.x, pos.y, pos.z, frontDoorpos.x, frontDoorpos.y, frontDoorpos.z) < 5.0)then   
-								if(Vdist(pos.x, pos.y, pos.z, frontDoorpos.x, frontDoorpos.y, frontDoorpos.z) < 1.0)then 
-									Draw3DText(frontDoorpos.x, frontDoorpos.y, frontDoorpos.z, '~w~[~g~E~w~] ' .. 'to pick the doorlocks') 
-									if IsControlJustReleased(1, 51) then 
-										TriggerEvent('lockpicking:StartMinigame',5, LockpickComplete)
-									end 
-								end
-							--end 
+						if FrontDoorsLocked == true  then 
+							local frontDoorpos = vangelico.FrontDoorLockPickPosition  
+							if(getPlayerDistance(frontDoorpos) < 1.0)then 
+								Draw3DText(frontDoorpos.x, frontDoorpos.y, frontDoorpos.z, '~w~[~g~E~w~] ' .. 'to pick the doorlocks') 
+								if IsControlJustReleased(1, 51) then 
+									TriggerEvent('lockpicking:StartMinigame',5, LockpickComplete)
+								end 
+							end 
 						end
 					end
-			
-					if ClientSideFrontDoorsLocked == true  then   
-						-- Lock the front doors
-						local RightDoorObj =  GetClosestObjectOfType(vangelico.FrontDoorRight.Position, 0.8, vangelico.FrontDoorRight.Hash, false, false, false)
-						if DoesEntityExist(RightDoorObj) then 
-							FreezeEntityPosition(RightDoorObj, true)
-							SetEntityHeading(RightDoorObj, vangelico.FrontDoorLeft.Heading)
-						end 
-						local LeftDoorObj =  GetClosestObjectOfType(vangelico.FrontDoorLeft.Position, 0.8, vangelico.FrontDoorLeft.Hash, false, false, false)
-						if DoesEntityExist(LeftDoorObj) then 
-							FreezeEntityPosition(LeftDoorObj, true)
-							SetEntityHeading(LeftDoorObj, vangelico.FrontDoorLeft.Heading)
-						end 
-					else 
-						-- Make Sure front doors are unlocked
-						local RightDoorObj =  GetClosestObjectOfType(vangelico.FrontDoorRight.Position, 0.8, vangelico.FrontDoorRight.Hash, false, false, false)
-						if DoesEntityExist(RightDoorObj) then 
-							FreezeEntityPosition(RightDoorObj, false) 
-						end 
-						local LeftDoorObj =  GetClosestObjectOfType(vangelico.FrontDoorLeft.Position, 0.8, vangelico.FrontDoorLeft.Hash, false, false, false)
-						if DoesEntityExist(LeftDoorObj) then 
-							FreezeEntityPosition(LeftDoorObj, false) 
-						end 
-					end  
-					
-					-- Police Secure Location
-					PlayerData = ESX.GetPlayerData()
-					if PlayerData and PlayerData.job then 
-						if PlayerData.job.name == "police" then
-							local securepos = vangelico.SecurePosition 
-				
-							--if(Vdist(pos.x, pos.y, pos.z, securepos.x, securepos.y, securepos.z) < 5.0)then 
-								--DrawMarker(5, securepos.x, securepos.y, securepos.z, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 250, 0, 0, 100,  false, false, 2, true,  nil, nil, false) 
-								if(Vdist(pos.x, pos.y, pos.z, securepos.x, securepos.y, securepos.z) < 1.0)then 
-									Draw3DText(securepos.x, securepos.y, securepos.z, '~w~[~g~E~w~] ' .. 'to secure the building') 
-									if IsControlJustReleased(1, 51) then  
-										TriggerServerEvent("vangelico:SecureBuilding")
-									end 
-								end
-							--end
-						end 
-					end   
+			 
 			end  
 		end  
     end
@@ -252,7 +264,7 @@ function Draw3DText(x, y, z, text)
     end
 end
   
-function robCase(val, heading, index)     
+function robCase(val, heading, index)  
 	local plyPed = GetPlayerPed(-1) 
 	local plySkin
 	local plyWeapon = GetCurrentPedWeapon(plyPed) 
@@ -272,7 +284,10 @@ function robCase(val, heading, index)
 			TaskPlayAnim( plyPed, "missheist_jewel", "smash_case_tray_a", 8.0, 1.0, -1, 2, 0, 0, 0, 0 )     
 		end)
 		TriggerServerEvent('vangelico:CaseSmashed', index)  
-		
+		DisplayClosestCase = false 
+		LastCaseOpened = ClosestCase
+		ClosestCase = 0
+
 		Wait(500)
 		
 		if not HasNamedPtfxAssetLoaded("scr_jewelheist") then RequestNamedPtfxAsset("scr_jewelheist"); end
@@ -294,10 +309,37 @@ function robCase(val, heading, index)
 		ESX.ShowNotification("You need a bag to carry the goods with.")
 	elseif matching then
 		ESX.ShowNotification("You can't break the glass with this.")  
-	end  
+	end   
 	smashingcase = false 
 end 
- 
+
+function setDoorState(DoorState)
+
+	if DoorState == true  then   
+		-- Lock the front doors
+		local RightDoorObj =  GetClosestObjectOfType(vangelico.FrontDoorRight.Position, 0.8, vangelico.FrontDoorRight.Hash, false, false, false)
+		if DoesEntityExist(RightDoorObj) then 
+			FreezeEntityPosition(RightDoorObj, true)
+			SetEntityHeading(RightDoorObj, vangelico.FrontDoorLeft.Heading)
+		end 
+		local LeftDoorObj =  GetClosestObjectOfType(vangelico.FrontDoorLeft.Position, 0.8, vangelico.FrontDoorLeft.Hash, false, false, false)
+		if DoesEntityExist(LeftDoorObj) then 
+			FreezeEntityPosition(LeftDoorObj, true)
+			SetEntityHeading(LeftDoorObj, vangelico.FrontDoorLeft.Heading)
+		end 
+	else 
+		-- Make Sure front doors are unlocked
+		local RightDoorObj =  GetClosestObjectOfType(vangelico.FrontDoorRight.Position, 0.8, vangelico.FrontDoorRight.Hash, false, false, false)
+		if DoesEntityExist(RightDoorObj) then 
+			FreezeEntityPosition(RightDoorObj, false) 
+		end 
+		local LeftDoorObj =  GetClosestObjectOfType(vangelico.FrontDoorLeft.Position, 0.8, vangelico.FrontDoorLeft.Hash, false, false, false)
+		if DoesEntityExist(LeftDoorObj) then 
+			FreezeEntityPosition(LeftDoorObj, false) 
+		end 
+	end  
+end
+
 -- Safe Robery Functions
 -- Creates the Safe
 function DeleteSeats()

@@ -77,6 +77,19 @@ AddEventHandler('vangelico:NotifyPolice', function()
 	NotifyPolice()
 end)
 
+ESX.RegisterServerCallback('vangelico:CheckCase', function(source, cb, index) 
+	local CaseIsOpen
+
+	for k,v in pairs(ServerSideJewelryCase) do
+		if k == index then  
+			CaseIsOpen = v.isOpen 
+			break
+		end 
+	end 
+
+ 	cb(CaseIsOpen )
+
+end) 
 
 -- Server Side Case Breaking Function
 RegisterServerEvent('vangelico:CaseSmashed')
