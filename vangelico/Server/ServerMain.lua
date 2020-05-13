@@ -163,6 +163,7 @@ AddEventHandler('vangelico:hackFrontDoors', function()
 				NotifyPolice()
 			end
 			TriggerClientEvent('vangelico:currentlyhacking', _source)  
+			xPlayer.removeInventoryItem(vangelico.HackingDeviceDBName, 1)
 		else
 			TriggerClientEvent('esx:showNotification', _source, 'You need a hacking device to hack this panel.')
 		end

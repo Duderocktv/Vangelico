@@ -113,8 +113,7 @@ function getClosestCase(JewelryCases)
 			allcasesopened = false 
 			if(getPlayerDistance(pos2) < 1.0)then  
 				ClosestCasePosition = pos2
-				ClosestCase = k
-				print(k)
+				ClosestCase = k 
 				ClosestCaseHeading = v.heading 
 				DisplayClosestCase = true 
 				break 
